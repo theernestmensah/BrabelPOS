@@ -1,0 +1,290 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+
+  branches Branch[]
+  products Product[]
+  customers Customer[]
+  suppliers Supplier[]
+}
+
+model Branch {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  city           String?
+  currency       String   @default("GHS") @db.Char(3)
+  taxRate        Decimal  @default(0.125) @db.Decimal(7, 6)
+  createdAt      DateTime @default(now())
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  terminals      Terminal[]
+  staffMembers   StaffMember[]
+  sales          Sale[]
+  stockMovements StockMovement[]
+  cashShifts     CashShift[]
+  expenses       Expense[]
+  transfersFrom  BranchTransfer[] @relation("TransfersFrom")
+  transfersTo    BranchTransfer[] @relation("TransfersTo")
+}
+
+model Terminal {
+  id         String    @id
+  branchId   String
+  label      String
+  lastSeenAt DateTime?
+
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  sales          Sale[]
+  stockMovements StockMovement[]
+  cashShifts     CashShift[]
+}
+
+model StaffMember {
+  id        String   @id
+  branchId  String
+  fullName  String
+  role      String
+  pinHash   String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+
+  branch         Branch          @relation(fields: [branchId], references: [id])
+  sales          Sale[]
+  stockMovements StockMovement[]
+  cashShifts     CashShift[]
+  expenses       Expense[]
+}
+
+model Product {
+  id             String   @id
+  organizationId String
+  sku            String?
+  barcode        String?
+  name           String
+  category       String
+  priceCents     Int
+  currency       String   @default("GHS") @db.Char(3)
+  description    String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id])
+  saleItems      SaleItem[]
+  stockMovements StockMovement[]
+  branchTransfers BranchTransfer[]
+
+  @@index([organizationId, category])
+  @@unique([organizationId, sku])
+  @@unique([organizationId, barcode])
+}
+
+model Customer {
+  id            String   @id
+  organizationId String
+  name          String
+  phone         String?
+  email         String?
+  loyaltyPoints Int      @default(0)
+  totalSpendCents Int    @default(0)
+  createdAt     DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, phone])
+}
+
+model Supplier {
+  id             String   @id
+  organizationId String
+  name           String
+  phone          String?
+  email          String?
+  contactPerson  String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([organizationId, name])
+}
+
+model Expense {
+  id          String   @id
+  branchId    String
+  category    String
+  amountCents Int
+  note        String
+  staffId     String
+  createdAt   DateTime @default(now())
+
+  branch Branch @relation(fields: [branchId], references: [id])
+  staff  StaffMember @relation(fields: [staffId], references: [id])
+
+  @@index([branchId, createdAt])
+}
+
+model BranchTransfer {
+  id           String   @id
+  productId    String
+  fromBranchId String
+  toBranchId   String
+  quantity     Int
+  status       String
+  requestedBy  String
+  createdAt    DateTime @default(now())
+
+  product    Product @relation(fields: [productId], references: [id])
+  fromBranch Branch  @relation("TransfersFrom", fields: [fromBranchId], references: [id])
+  toBranch   Branch  @relation("TransfersTo", fields: [toBranchId], references: [id])
+
+  @@index([fromBranchId, status])
+  @@index([toBranchId, status])
+}
+
+model ManagerApproval {
+  id         String   @id
+  action     String
+  entityType String
+  entityId   String
+  requestedBy String
+  approvedBy String?
+  status     String
+  reason     String?
+  createdAt  DateTime @default(now())
+  resolvedAt DateTime?
+
+  @@index([status, createdAt])
+}
+
+model Sale {
+  id               String    @id
+  branchId         String
+  terminalId       String
+  cashierId        String
+  shiftId          String?
+  paymentMethod    String
+  subtotalCents    Int
+  discountCents    Int       @default(0)
+  taxCents         Int
+  totalCents       Int
+  currency         String    @default("GHS") @db.Char(3)
+  taxRate          Decimal   @db.Decimal(7, 6)
+  clientTimestamp  DateTime
+  serverReceivedAt DateTime  @default(now())
+  voidedAt         DateTime?
+  refundedAt       DateTime?
+  refundReason     String?
+
+  branch    Branch       @relation(fields: [branchId], references: [id])
+  terminal  Terminal     @relation(fields: [terminalId], references: [id])
+  cashier   StaffMember  @relation(fields: [cashierId], references: [id])
+  shift     CashShift?   @relation(fields: [shiftId], references: [id])
+  items     SaleItem[]
+  payments  Payment[]
+
+  @@unique([branchId, terminalId, id])
+  @@index([branchId, serverReceivedAt])
+}
+
+model CashShift {
+  id                 String    @id
+  branchId           String
+  terminalId         String
+  cashierId          String
+  openedAt           DateTime
+  closedAt           DateTime?
+  openingFloatCents  Int
+  cashSalesCents     Int       @default(0)
+  expectedCashCents  Int
+  countedCashCents   Int?
+  varianceCents      Int?
+  status             String
+  note               String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  branch   Branch      @relation(fields: [branchId], references: [id])
+  terminal Terminal    @relation(fields: [terminalId], references: [id])
+  cashier  StaffMember @relation(fields: [cashierId], references: [id])
+  sales    Sale[]
+
+  @@index([branchId, openedAt])
+  @@index([terminalId, status])
+}
+
+model SaleItem {
+  id               BigInt @id @default(autoincrement())
+  saleId           String
+  productId        String
+  nameSnapshot     String
+  categorySnapshot String
+  unitPriceCents   Int
+  quantity         Int
+  lineTotalCents   Int
+
+  sale    Sale    @relation(fields: [saleId], references: [id])
+  product Product @relation(fields: [productId], references: [id])
+}
+
+model Payment {
+  id                String   @id
+  saleId            String
+  method            String
+  amountCents       Int
+  provider          String?
+  providerReference String?
+  status            String
+  createdAt         DateTime @default(now())
+
+  sale Sale @relation(fields: [saleId], references: [id])
+}
+
+model StockMovement {
+  id            String   @id
+  branchId      String
+  productId     String
+  saleId        String?
+  type          String
+  quantityDelta Int
+  reason        String
+  staffId       String
+  terminalId    String
+  createdAt     DateTime @default(now())
+
+  branch   Branch      @relation(fields: [branchId], references: [id])
+  product  Product     @relation(fields: [productId], references: [id])
+  staff    StaffMember @relation(fields: [staffId], references: [id])
+  terminal Terminal    @relation(fields: [terminalId], references: [id])
+
+  @@index([productId, createdAt])
+}
+
+model SyncOperation {
+  operationId String   @id
+  entityType  String
+  entityId    String
+  payload     Json
+  receivedAt  DateTime @default(now())
+}
+
+model AuditLog {
+  id         String   @id
+  actorId    String
+  action     String
+  entityType String
+  entityId   String
+  metadata   Json     @default("{}")
+  createdAt  DateTime @default(now())
+
+  @@index([entityType, entityId, createdAt])
+}
